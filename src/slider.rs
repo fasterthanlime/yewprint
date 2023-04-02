@@ -7,7 +7,7 @@ use web_sys::Element;
 use yew::prelude::*;
 
 pub struct Slider<T: ImplicitClone + PartialEq + 'static> {
-    mouse_move: Closure<dyn FnMut(TouchEvent)>,
+    mouse_move: Closure<dyn FnMut(PointerEvent)>,
     mouse_up: Closure<dyn FnMut(PointerEvent)>,
     handle_ref: NodeRef,
     track_ref: NodeRef,
@@ -33,7 +33,7 @@ pub struct SliderProps<T: ImplicitClone + PartialEq + 'static> {
 
 pub enum Msg {
     StartChange,
-    Mouse { client_x: i32 },
+    Mouse(PointerEvent),
     StopChange,
     Keyboard(KeyboardEvent),
 }
@@ -45,14 +45,8 @@ impl<T: ImplicitClone + PartialEq + 'static> Component for Slider<T> {
     fn create(ctx: &Context<Self>) -> Self {
         let mouse_move = {
             let link = ctx.link().clone();
-            Closure::wrap(Box::new(move |event: web_sys::TouchEvent| {
-                let touches = event.target_touches();
-                if touches.length() >= 1 {
-                    let touch = touches.item(0).unwrap();
-                    link.send_message(Msg::Mouse {
-                        client_x: touch.client_x(),
-                    });
-                }
+            Closure::wrap(Box::new(move |event: web_sys::PointerEvent| {
+                link.send_message(Msg::Mouse(event));
             }) as Box<dyn FnMut(_)>)
         };
         let mouse_up = {
@@ -80,7 +74,7 @@ impl<T: ImplicitClone + PartialEq + 'static> Component for Slider<T> {
                 self.is_moving = true;
                 event_target
                     .add_event_listener_with_callback(
-                        "touchmove",
+                        "pointermove",
                         self.mouse_move.as_ref().unchecked_ref(),
                     )
                     .expect("No event listener to add");
@@ -94,11 +88,12 @@ impl<T: ImplicitClone + PartialEq + 'static> Component for Slider<T> {
                 true
             }
             Msg::StartChange => false,
-            Msg::Mouse { client_x } if ctx.props().values.len() > 1 => {
+            Msg::Mouse(event) if ctx.props().values.len() > 1 => {
                 let track_rect = self.track_ref.cast::<Element>().expect("no track ref");
                 let tick_size = (track_rect.client_width() as f64)
                     / ctx.props().values.len().saturating_sub(1) as f64;
-                let pixel_delta = (client_x as f64) - track_rect.get_bounding_client_rect().left();
+                let pixel_delta =
+                    (event.client_x() as f64) - track_rect.get_bounding_client_rect().left();
 
                 let position = (pixel_delta / tick_size).round() as usize;
 
@@ -122,7 +117,7 @@ impl<T: ImplicitClone + PartialEq + 'static> Component for Slider<T> {
                 self.is_moving = false;
                 event_target
                     .remove_event_listener_with_callback(
-                        "touchmove",
+                        "pointermove",
                         self.mouse_move.as_ref().unchecked_ref(),
                     )
                     .expect("No event listener to remove");
@@ -231,7 +226,14 @@ impl<T: ImplicitClone + PartialEq + 'static> Component for Slider<T> {
                 onpointerdown={(ctx.props().values.len() > 1).then(
                     || ctx.link().batch_callback(
                         |event: PointerEvent| {
-                            vec![Msg::StartChange, Msg::Mouse { client_x: event.client_x() }]
+                            event
+                                .current_target()
+                                .unwrap()
+                                .dyn_ref::<web_sys::Element>()
+                                .unwrap()
+                                .set_pointer_capture(event.pointer_id())
+                                .unwrap();
+                            vec![Msg::StartChange, Msg::Mouse(event)]
                         }
                     )
                 )}
