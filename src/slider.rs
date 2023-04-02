@@ -7,7 +7,7 @@ use web_sys::Element;
 use yew::prelude::*;
 
 pub struct Slider<T: ImplicitClone + PartialEq + 'static> {
-    mouse_move: Closure<dyn FnMut(PointerEvent)>,
+    mouse_move: Closure<dyn FnMut(TouchEvent)>,
     mouse_up: Closure<dyn FnMut(PointerEvent)>,
     handle_ref: NodeRef,
     track_ref: NodeRef,
@@ -33,7 +33,7 @@ pub struct SliderProps<T: ImplicitClone + PartialEq + 'static> {
 
 pub enum Msg {
     StartChange,
-    Mouse(PointerEvent),
+    Mouse(TouchEvent),
     StopChange,
     Keyboard(KeyboardEvent),
 }
@@ -45,7 +45,7 @@ impl<T: ImplicitClone + PartialEq + 'static> Component for Slider<T> {
     fn create(ctx: &Context<Self>) -> Self {
         let mouse_move = {
             let link = ctx.link().clone();
-            Closure::wrap(Box::new(move |event: web_sys::PointerEvent| {
+            Closure::wrap(Box::new(move |event: web_sys::TouchEvent| {
                 link.send_message(Msg::Mouse(event));
             }) as Box<dyn FnMut(_)>)
         };
@@ -89,31 +89,32 @@ impl<T: ImplicitClone + PartialEq + 'static> Component for Slider<T> {
             }
             Msg::StartChange => false,
             Msg::Mouse(event) if ctx.props().values.len() > 1 => {
-                if event.buttons() == crate::MOUSE_EVENT_BUTTONS_PRIMARY {
-                    let track_rect = self.track_ref.cast::<Element>().expect("no track ref");
-                    let tick_size = (track_rect.client_width() as f64)
-                        / ctx.props().values.len().saturating_sub(1) as f64;
-                    let pixel_delta =
-                        (event.client_x() as f64) - track_rect.get_bounding_client_rect().left();
-
-                    let position = (pixel_delta / tick_size).round() as usize;
-
-                    let (value, _) = ctx.props().values.get(position).unwrap_or_else(|| {
-                        ctx.props()
-                            .values
-                            .last()
-                            .cloned()
-                            .expect("No value in the array")
-                    });
-
-                    if Some(&value) != ctx.props().selected.as_ref() {
-                        ctx.props().onchange.emit(value);
-                    }
-
-                    true
-                } else {
-                    false
+                let touches = event.target_touches();
+                if touches.length() < 1 {
+                    return false;
                 }
+                let touch = touches.item(0).unwrap();
+
+                let track_rect = self.track_ref.cast::<Element>().expect("no track ref");
+                let tick_size = (track_rect.client_width() as f64)
+                    / ctx.props().values.len().saturating_sub(1) as f64;
+                let pixel_delta =
+                    (touch.client_x() as f64) - track_rect.get_bounding_client_rect().left();
+
+                let position = (pixel_delta / tick_size).round() as usize;
+
+                let (value, _) = ctx.props().values.get(position).unwrap_or_else(|| {
+                    ctx.props()
+                        .values
+                        .last()
+                        .cloned()
+                        .expect("No value in the array")
+                });
+
+                if Some(&value) != ctx.props().selected.as_ref() {
+                    ctx.props().onchange.emit(value);
+                }
+                true
             }
             Msg::Mouse(_) => false,
             Msg::StopChange => {
@@ -231,7 +232,8 @@ impl<T: ImplicitClone + PartialEq + 'static> Component for Slider<T> {
                 onpointerdown={(ctx.props().values.len() > 1).then(
                     || ctx.link().batch_callback(
                         |event: PointerEvent| {
-                            vec![Msg::StartChange, Msg::Mouse(event)]
+                            // vec![Msg::StartChange, Msg::Mouse(event)]
+                            vec![Msg::StartChange]
                         }
                     )
                 )}
