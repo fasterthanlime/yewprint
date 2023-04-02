@@ -7,8 +7,8 @@ use web_sys::Element;
 use yew::prelude::*;
 
 pub struct Slider<T: ImplicitClone + PartialEq + 'static> {
-    mouse_move: Closure<dyn FnMut(MouseEvent)>,
-    mouse_up: Closure<dyn FnMut(MouseEvent)>,
+    mouse_move: Closure<dyn FnMut(PointerEvent)>,
+    mouse_up: Closure<dyn FnMut(PointerEvent)>,
     handle_ref: NodeRef,
     track_ref: NodeRef,
     is_moving: bool,
@@ -33,7 +33,7 @@ pub struct SliderProps<T: ImplicitClone + PartialEq + 'static> {
 
 pub enum Msg {
     StartChange,
-    Mouse(MouseEvent),
+    Mouse(PointerEvent),
     StopChange,
     Keyboard(KeyboardEvent),
 }
@@ -45,13 +45,13 @@ impl<T: ImplicitClone + PartialEq + 'static> Component for Slider<T> {
     fn create(ctx: &Context<Self>) -> Self {
         let mouse_move = {
             let link = ctx.link().clone();
-            Closure::wrap(Box::new(move |event: web_sys::MouseEvent| {
+            Closure::wrap(Box::new(move |event: web_sys::PointerEvent| {
                 link.send_message(Msg::Mouse(event));
             }) as Box<dyn FnMut(_)>)
         };
         let mouse_up = {
             let link = ctx.link().clone();
-            Closure::wrap(Box::new(move |_event: web_sys::MouseEvent| {
+            Closure::wrap(Box::new(move |_event: web_sys::PointerEvent| {
                 link.send_message(Msg::StopChange);
             }) as Box<dyn FnMut(_)>)
         };
@@ -74,13 +74,13 @@ impl<T: ImplicitClone + PartialEq + 'static> Component for Slider<T> {
                 self.is_moving = true;
                 event_target
                     .add_event_listener_with_callback(
-                        "mousemove",
+                        "touchmove",
                         self.mouse_move.as_ref().unchecked_ref(),
                     )
                     .expect("No event listener to add");
                 event_target
                     .add_event_listener_with_callback(
-                        "mouseup",
+                        "pointerup",
                         self.mouse_up.as_ref().unchecked_ref(),
                     )
                     .expect("No event listener to add");
@@ -122,13 +122,13 @@ impl<T: ImplicitClone + PartialEq + 'static> Component for Slider<T> {
                 self.is_moving = false;
                 event_target
                     .remove_event_listener_with_callback(
-                        "mousemove",
+                        "touchmove",
                         self.mouse_move.as_ref().unchecked_ref(),
                     )
                     .expect("No event listener to remove");
                 event_target
                     .remove_event_listener_with_callback(
-                        "mouseup",
+                        "pointerup",
                         self.mouse_up.as_ref().unchecked_ref(),
                     )
                     .expect("No event listener to remove");
@@ -228,16 +228,10 @@ impl<T: ImplicitClone + PartialEq + 'static> Component for Slider<T> {
                     "bp3-slider",
                     ctx.props().vertical.then_some("bp3-vertical"),
                 )}
-                onmousedown={(ctx.props().values.len() > 1).then(
+                onpointerdown={(ctx.props().values.len() > 1).then(
                     || ctx.link().batch_callback(
-                        |event: MouseEvent| {
-                            if event.buttons() ==
-                                crate::MOUSE_EVENT_BUTTONS_PRIMARY
-                            {
-                                vec![Msg::StartChange, Msg::Mouse(event)]
-                            } else {
-                                vec![]
-                            }
+                        |event: PointerEvent| {
+                            vec![Msg::StartChange, Msg::Mouse(event)]
                         }
                     )
                 )}
