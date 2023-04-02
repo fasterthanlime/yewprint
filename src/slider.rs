@@ -33,7 +33,7 @@ pub struct SliderProps<T: ImplicitClone + PartialEq + 'static> {
 
 pub enum Msg {
     StartChange,
-    Mouse(TouchEvent),
+    Mouse { client_x: i32 },
     StopChange,
     Keyboard(KeyboardEvent),
 }
@@ -46,7 +46,13 @@ impl<T: ImplicitClone + PartialEq + 'static> Component for Slider<T> {
         let mouse_move = {
             let link = ctx.link().clone();
             Closure::wrap(Box::new(move |event: web_sys::TouchEvent| {
-                link.send_message(Msg::Mouse(event));
+                let touches = event.target_touches();
+                if touches.length() >= 1 {
+                    let touch = touches.item(0).unwrap();
+                    link.send_message(Msg::Mouse {
+                        client_x: touch.client_x(),
+                    });
+                }
             }) as Box<dyn FnMut(_)>)
         };
         let mouse_up = {
@@ -88,18 +94,11 @@ impl<T: ImplicitClone + PartialEq + 'static> Component for Slider<T> {
                 true
             }
             Msg::StartChange => false,
-            Msg::Mouse(event) if ctx.props().values.len() > 1 => {
-                let touches = event.target_touches();
-                if touches.length() < 1 {
-                    return false;
-                }
-                let touch = touches.item(0).unwrap();
-
+            Msg::Mouse { client_x } if ctx.props().values.len() > 1 => {
                 let track_rect = self.track_ref.cast::<Element>().expect("no track ref");
                 let tick_size = (track_rect.client_width() as f64)
                     / ctx.props().values.len().saturating_sub(1) as f64;
-                let pixel_delta =
-                    (touch.client_x() as f64) - track_rect.get_bounding_client_rect().left();
+                let pixel_delta = (client_x as f64) - track_rect.get_bounding_client_rect().left();
 
                 let position = (pixel_delta / tick_size).round() as usize;
 
@@ -116,7 +115,7 @@ impl<T: ImplicitClone + PartialEq + 'static> Component for Slider<T> {
                 }
                 true
             }
-            Msg::Mouse(_) => false,
+            Msg::Mouse { .. } => false,
             Msg::StopChange => {
                 let document = gloo::utils::document();
                 let event_target: &web_sys::EventTarget = document.as_ref();
@@ -232,8 +231,7 @@ impl<T: ImplicitClone + PartialEq + 'static> Component for Slider<T> {
                 onpointerdown={(ctx.props().values.len() > 1).then(
                     || ctx.link().batch_callback(
                         |event: PointerEvent| {
-                            // vec![Msg::StartChange, Msg::Mouse(event)]
-                            vec![Msg::StartChange]
+                            vec![Msg::StartChange, Msg::Mouse { client_x: event.client_x() }]
                         }
                     )
                 )}
