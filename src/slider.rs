@@ -1,14 +1,11 @@
 use crate::Intent;
 use implicit_clone::{unsync::IArray, ImplicitClone};
 use std::marker::PhantomData;
-use wasm_bindgen::closure::Closure;
 use wasm_bindgen::JsCast;
 use web_sys::Element;
 use yew::prelude::*;
 
 pub struct Slider<T: ImplicitClone + PartialEq + 'static> {
-    mouse_move: Closure<dyn FnMut(PointerEvent)>,
-    mouse_up: Closure<dyn FnMut(PointerEvent)>,
     handle_ref: NodeRef,
     track_ref: NodeRef,
     is_moving: bool,
@@ -31,8 +28,9 @@ pub struct SliderProps<T: ImplicitClone + PartialEq + 'static> {
     pub selected: Option<T>,
 }
 
+#[derive(Debug)]
 pub enum Msg {
-    StartChange,
+    StartChange { pointer_id: i32 },
     Mouse(PointerEvent),
     StopChange,
     Keyboard(KeyboardEvent),
@@ -42,22 +40,8 @@ impl<T: ImplicitClone + PartialEq + 'static> Component for Slider<T> {
     type Message = Msg;
     type Properties = SliderProps<T>;
 
-    fn create(ctx: &Context<Self>) -> Self {
-        let mouse_move = {
-            let link = ctx.link().clone();
-            Closure::wrap(Box::new(move |event: web_sys::PointerEvent| {
-                link.send_message(Msg::Mouse(event));
-            }) as Box<dyn FnMut(_)>)
-        };
-        let mouse_up = {
-            let link = ctx.link().clone();
-            Closure::wrap(Box::new(move |_event: web_sys::PointerEvent| {
-                link.send_message(Msg::StopChange);
-            }) as Box<dyn FnMut(_)>)
-        };
+    fn create(_ctx: &Context<Self>) -> Self {
         Self {
-            mouse_move,
-            mouse_up,
             handle_ref: NodeRef::default(),
             track_ref: NodeRef::default(),
             is_moving: false,
@@ -67,27 +51,22 @@ impl<T: ImplicitClone + PartialEq + 'static> Component for Slider<T> {
     }
 
     fn update(&mut self, ctx: &Context<Self>, msg: Self::Message) -> bool {
+        gloo::console::log!("slider got event: {msg:#?}");
         match msg {
-            Msg::StartChange if ctx.props().values.len() > 1 => {
+            Msg::StartChange { pointer_id } if ctx.props().values.len() > 1 => {
                 let document = gloo::utils::document();
                 let event_target: &web_sys::EventTarget = document.as_ref();
                 self.is_moving = true;
+
                 event_target
-                    .add_event_listener_with_callback(
-                        "pointermove",
-                        self.mouse_move.as_ref().unchecked_ref(),
-                    )
-                    .expect("No event listener to add");
-                event_target
-                    .add_event_listener_with_callback(
-                        "pointerup",
-                        self.mouse_up.as_ref().unchecked_ref(),
-                    )
-                    .expect("No event listener to add");
+                    .dyn_ref::<web_sys::Element>()
+                    .unwrap()
+                    .set_pointer_capture(pointer_id)
+                    .unwrap();
 
                 true
             }
-            Msg::StartChange => false,
+            Msg::StartChange { .. } => false,
             Msg::Mouse(event) if ctx.props().values.len() > 1 => {
                 let track_rect = self.track_ref.cast::<Element>().expect("no track ref");
                 let tick_size = (track_rect.client_width() as f64)
@@ -112,21 +91,7 @@ impl<T: ImplicitClone + PartialEq + 'static> Component for Slider<T> {
             }
             Msg::Mouse { .. } => false,
             Msg::StopChange => {
-                let document = gloo::utils::document();
-                let event_target: &web_sys::EventTarget = document.as_ref();
                 self.is_moving = false;
-                event_target
-                    .remove_event_listener_with_callback(
-                        "pointermove",
-                        self.mouse_move.as_ref().unchecked_ref(),
-                    )
-                    .expect("No event listener to remove");
-                event_target
-                    .remove_event_listener_with_callback(
-                        "pointerup",
-                        self.mouse_up.as_ref().unchecked_ref(),
-                    )
-                    .expect("No event listener to remove");
                 true
             }
             Msg::Keyboard(event) if ctx.props().values.len() > 1 => match event.key().as_str() {
@@ -226,14 +191,21 @@ impl<T: ImplicitClone + PartialEq + 'static> Component for Slider<T> {
                 onpointerdown={(ctx.props().values.len() > 1).then(
                     || ctx.link().batch_callback(
                         |event: PointerEvent| {
-                            event
-                                .current_target()
-                                .unwrap()
-                                .dyn_ref::<web_sys::Element>()
-                                .unwrap()
-                                .set_pointer_capture(event.pointer_id())
-                                .unwrap();
-                            vec![Msg::StartChange, Msg::Mouse(event)]
+                            vec![Msg::StartChange { pointer_id: event.pointer_id() }, Msg::Mouse(event)]
+                        }
+                    )
+                )}
+                onpointermove={(ctx.props().values.len() > 1).then(
+                    || ctx.link().callback(
+                        |event: PointerEvent| {
+                            Msg::Mouse(event)
+                        }
+                    )
+                )}
+                onpointerup={(ctx.props().values.len() > 1).then(
+                    || ctx.link().callback(
+                        |_event: PointerEvent| {
+                            Msg::StopChange
                         }
                     )
                 )}
@@ -304,13 +276,9 @@ impl<T: ImplicitClone + PartialEq + 'static> Component for Slider<T> {
                                         100.0 * (index as f64)
                                             / (ctx.props().values.len() as f64 - 1.0),
                                     )}
-                                    onmousedown={ctx.link().batch_callback(
-                                    |event: MouseEvent| {
-                                        if event.buttons() == crate::MOUSE_EVENT_BUTTONS_PRIMARY {
-                                            vec![Msg::StartChange]
-                                        } else {
-                                            vec![]
-                                        }
+                                    onpointerdown={ctx.link().batch_callback(
+                                    |event: PointerEvent| {
+                                        vec![Msg::StartChange { pointer_id: event.pointer_id() }]
                                     })}
                                     onkeydown={ctx.link().callback(|event| Msg::Keyboard(event))}
                                     tabindex=0
