@@ -30,7 +30,7 @@ pub struct SliderProps<T: ImplicitClone + PartialEq + 'static> {
 
 #[derive(Debug)]
 pub enum Msg {
-    StartChange,
+    StartChange { pointer_id: i32 },
     Mouse(PointerEvent),
     StopChange,
     Keyboard(KeyboardEvent),
@@ -51,9 +51,11 @@ impl<T: ImplicitClone + PartialEq + 'static> Component for Slider<T> {
     }
 
     fn update(&mut self, ctx: &Context<Self>, msg: Self::Message) -> bool {
-        gloo::console::log!(format!("slider got event: {msg:#?}"));
         match msg {
-            Msg::StartChange if ctx.props().values.len() > 1 => {
+            Msg::StartChange { pointer_id } if ctx.props().values.len() > 1 => {
+                if let Some(handle) = self.handle_ref.cast::<web_sys::HtmlElement>() {
+                    handle.set_pointer_capture(pointer_id).unwrap();
+                }
                 self.is_moving = true;
                 true
             }
@@ -183,14 +185,7 @@ impl<T: ImplicitClone + PartialEq + 'static> Component for Slider<T> {
                 onpointerdown={(ctx.props().values.len() > 1).then(
                     || ctx.link().batch_callback(
                         |event: PointerEvent| {
-                            let event_target = event.target().unwrap();
-                            gloo::console::log!(format!("pointerdown on slider (not handle), capturing pointer {}", event.pointer_id()));
-                            event_target
-                                .dyn_ref::<web_sys::Element>()
-                                .unwrap()
-                                .set_pointer_capture(event.pointer_id())
-                                .unwrap();
-                            vec![Msg::StartChange, Msg::Mouse(event)]
+                            vec![Msg::StartChange { pointer_id: event.pointer_id() }, Msg::Mouse(event)]
                         }
                     )
                 )}
@@ -200,7 +195,6 @@ impl<T: ImplicitClone + PartialEq + 'static> Component for Slider<T> {
                             if let Some(target) = event.target() {
                                 if let Some(el) = target.dyn_ref::<web_sys::Element>() {
                                     if el.has_pointer_capture(event.pointer_id()) {
-                                        gloo::console::log!(format!("pointermove on slider, client_x = {}", event.client_x()));
                                         return vec![Msg::Mouse(event)];
                                     }
                                 }
@@ -212,7 +206,6 @@ impl<T: ImplicitClone + PartialEq + 'static> Component for Slider<T> {
                 onpointerup={(ctx.props().values.len() > 1).then(
                     || ctx.link().callback(
                         |_event: PointerEvent| {
-                            gloo::console::log!(format!("pointerup on slider"));
                             Msg::StopChange
                         }
                     )
@@ -284,40 +277,6 @@ impl<T: ImplicitClone + PartialEq + 'static> Component for Slider<T> {
                                         100.0 * (index as f64)
                                             / (ctx.props().values.len() as f64 - 1.0),
                                     )}
-                                    onpointerdown={ctx.link().batch_callback(
-                                    |event: PointerEvent| {
-                                        let event_target = event.target().unwrap();
-                                        gloo::console::log!("onpointerdown on slider handle, capturing pointer");
-                                        event_target
-                                            .dyn_ref::<web_sys::Element>()
-                                            .unwrap()
-                                            .set_pointer_capture(event.pointer_id())
-                                            .unwrap();
-                                        vec![Msg::StartChange]
-                                    })}
-                                    onpointermove={(ctx.props().values.len() > 1).then(
-                                        || ctx.link().batch_callback(
-                                            |event: PointerEvent| {
-                                                if let Some(target) = event.target() {
-                                                    if let Some(el) = target.dyn_ref::<web_sys::Element>() {
-                                                        if el.has_pointer_capture(event.pointer_id()) {
-                                                            gloo::console::log!(format!("pointermove on slider handle, client_x = {}", event.client_x()));
-                                                            return vec![Msg::Mouse(event)];
-                                                        }
-                                                    }
-                                                }
-                                                vec![]
-                                            }
-                                        )
-                                    )}
-                                    onpointerup={(ctx.props().values.len() > 1).then(
-                                        || ctx.link().callback(
-                                            |_event: PointerEvent| {
-                                                gloo::console::log!(format!("pointerup on slider handle"));
-                                                Msg::StopChange
-                                            }
-                                        )
-                                    )}
                                     onkeydown={ctx.link().callback(|event| Msg::Keyboard(event))}
                                     tabindex=0
                                 >
@@ -347,7 +306,6 @@ impl<T: ImplicitClone + PartialEq + 'static> Component for Slider<T> {
     }
 
     fn rendered(&mut self, _ctx: &Context<Self>, _: bool) {
-        gloo::console::log!("slider rendered!");
         if self.focus_handle {
             if let Some(element) = self.handle_ref.cast::<web_sys::HtmlElement>() {
                 let _ = element.focus();
